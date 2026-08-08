@@ -17,12 +17,12 @@ def main():
     # THE FIX: Using sys.executable bypasses Windows PATH issues completely 
     # by forcing the current Python environment to run the module directly.
     command = [
-        sys.executable, 
-        "-m", "demucs.separate",
-        "-n", "htdemucs", 
-        "-o", str(output_dir),
-        str(file_path)
-    ]
+            sys.executable, 
+            "-m", "demucs.separate",
+            "-n", "htdemucs_6s", # <-- CHANGED TO 6-STEM MODEL
+            "-o", str(output_dir),
+            str(file_path)
+        ]
 
     try:
         subprocess.run(command, check=True)

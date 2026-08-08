@@ -20,8 +20,8 @@ async fn run_demucs(file_path: String) -> Result<String, String> {
         let path = Path::new(&file_path);
         let file_stem = path.file_stem().unwrap_or_default().to_string_lossy();
         
-        // Construct the exact path where Demucs creates the files
-        let stem_dir = format!("C:/Users/Patrick Evan/SplitWave/backend/separated/htdemucs/{}", file_stem);
+        // Inside main.rs
+        let stem_dir = format!("C:/Users/Patrick Evan/SplitWave/backend/separated/htdemucs_6s/{}", file_stem);
         
         Ok(stem_dir)
     } else {

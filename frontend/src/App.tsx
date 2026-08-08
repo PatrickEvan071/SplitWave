@@ -163,6 +163,8 @@ export default function App() {
   const drumsRef = useRef<TrackRef>(null);
   const bassRef = useRef<TrackRef>(null);
   const otherRef = useRef<TrackRef>(null);
+  const pianoRef = useRef<TrackRef>(null);
+  const guitarRef = useRef<TrackRef>(null);
 
   // Master Clock States
   const [currentTime, setCurrentTime] = useState(0);
@@ -216,6 +218,8 @@ export default function App() {
     if (sourceTrack !== 'Drums') drumsRef.current?.setTime(time);
     if (sourceTrack !== 'Bass') bassRef.current?.setTime(time);
     if (sourceTrack !== 'Other') otherRef.current?.setTime(time);
+    if (sourceTrack !== 'Piano') pianoRef.current?.setTime(time);
+    if (sourceTrack !== 'Guitar') guitarRef.current?.setTime(time);
     
     // Immediately update the clock text so it doesn't lag
     setCurrentTime(time);
@@ -295,6 +299,20 @@ export default function App() {
               isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Bass')} 
               onToggleSolo={() => toggleSolo('Bass')} 
               onSeek={(time) => handleSeek(time, 'Bass')}
+            />
+            <AudioTrack 
+              ref={pianoRef}
+              title="Piano" color="#a855f7" audioUrl={getAudioUrl('piano')} isPlaying={isPlaying} 
+              isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Piano')} 
+              onToggleSolo={() => toggleSolo('Piano')} 
+              onSeek={(time) => handleSeek(time, 'Piano')}
+            />
+            <AudioTrack 
+              ref={guitarRef}
+              title="Guitar" color="#f97316" audioUrl={getAudioUrl('guitar')} isPlaying={isPlaying} 
+              isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Guitar')} 
+              onToggleSolo={() => toggleSolo('Guitar')} 
+              onSeek={(time) => handleSeek(time, 'Guitar')}
             />
             <AudioTrack 
               ref={otherRef}
