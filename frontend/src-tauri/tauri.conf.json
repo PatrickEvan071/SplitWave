@@ -18,6 +18,10 @@
       }
     ],
     "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["C:/Users/Patrick Evan/SplitWave/backend/separated/**"]
+      },
       "csp": null
     }
   },
