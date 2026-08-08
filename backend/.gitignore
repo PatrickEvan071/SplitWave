@@ -1,0 +1,9 @@
+# Python virtual environment
+venv/
+__pycache__/
+
+# Ignore the audio outputs so you don't upload massive MP3s
+separated/
+output/
+*.mp3
+*.wav
