@@ -1,35 +1,35 @@
-import argparse
-import os
-import subprocess
 import sys
+import subprocess
+import argparse
+from pathlib import Path
 
 def main():
-    parser = argparse.ArgumentParser(description='Run Demucs audio separation')
-    parser.add_argument('audio_file', type=str, help='Path to the input audio file')
-    parser.add_argument('--output', type=str, default='separated', help='Output folder for separated tracks (default: separated)')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("file_path", help="Path to the audio file")
     args = parser.parse_args()
 
-    # Validate input file
-    if not os.path.exists(args.audio_file):
-        print(f"Error: Input file not found: {args.audio_file}")
-        sys.exit(1)
+    file_path = Path(args.file_path)
+    # Saves the tracks in a 'separated' folder inside your backend directory
+    output_dir = Path(__file__).parent / "separated" 
 
-    # Create output directory if it doesn't exist
-    os.makedirs(args.output, exist_ok=True)
+    print(f"Processing: {file_path}")
 
-    # Run Demucs separation (Defaults to 4 stems: vocals, bass, drums, other)
+    # THE FIX: Using sys.executable bypasses Windows PATH issues completely 
+    # by forcing the current Python environment to run the module directly.
     command = [
-        'demucs',
-        '-o', args.output,
-        args.audio_file
+        sys.executable, 
+        "-m", "demucs.separate",
+        "-n", "htdemucs", 
+        "-o", str(output_dir),
+        str(file_path)
     ]
 
     try:
         subprocess.run(command, check=True)
-        print(f"Separation completed. Output saved to: {args.output}")
-    except subprocess.CalledProcessError as e:
-        print(f"Error running Demucs: {e}")
+        print("Successfully separated tracks!")
+    except Exception as e:
+        print(f"Error running demucs: {e}", file=sys.stderr)
         sys.exit(1)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

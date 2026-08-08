@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UploadCloud, Volume2, VolumeX, Play, Pause } from 'lucide-react';
 import WaveSurfer from 'wavesurfer.js';
+// 1. Import Tauri IPC and Dialog APIs
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
-// 1. Define our strict TypeScript interfaces
 interface TrackProps {
   title: string;
   color: string;
-  audioUrl?: string; // Will be used when we load real audio files
+  audioUrl?: string; 
 }
 
 const AudioTrack: React.FC<TrackProps> = ({ title, color, audioUrl }) => {
@@ -14,11 +16,9 @@ const AudioTrack: React.FC<TrackProps> = ({ title, color, audioUrl }) => {
   const [isSolo, setIsSolo] = useState(false);
   const [volume, setVolume] = useState(100);
   
-  // 2. Refs to hold the DOM element and the Wavesurfer instance
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
 
-  // 3. Initialize Wavesurfer when the component mounts
   useEffect(() => {
     if (!waveformRef.current) return;
 
@@ -33,18 +33,15 @@ const AudioTrack: React.FC<TrackProps> = ({ title, color, audioUrl }) => {
       cursorWidth: 0,
     });
 
-    // If we passed an actual audio URL, load it!
     if (audioUrl) {
       wavesurfer.current.load(audioUrl);
     }
 
-    // Cleanup function to destroy the instance when the component unmounts
     return () => {
       wavesurfer.current?.destroy();
     };
   }, [color, audioUrl]);
 
-  // Handle Mute/Volume changes linking to Wavesurfer
   useEffect(() => {
     if (wavesurfer.current) {
       wavesurfer.current.setVolume(isMuted ? 0 : volume / 100);
@@ -56,39 +53,15 @@ const AudioTrack: React.FC<TrackProps> = ({ title, color, audioUrl }) => {
       <div className="w-24">
         <h3 className="text-sm font-bold text-white">{title}</h3>
       </div>
-
       <div className="flex gap-2">
-        <button 
-          onClick={() => setIsMuted(!isMuted)}
-          className={`px-3 py-1 text-xs font-bold rounded ${isMuted ? 'bg-red-500/20 text-red-500' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
-        >
-          M
-        </button>
-        <button 
-          onClick={() => setIsSolo(!isSolo)}
-          className={`px-3 py-1 text-xs font-bold rounded ${isSolo ? 'bg-yellow-500/20 text-yellow-500' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
-        >
-          S
-        </button>
+        <button onClick={() => setIsMuted(!isMuted)} className={`px-3 py-1 text-xs font-bold rounded ${isMuted ? 'bg-red-500/20 text-red-500' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>M</button>
+        <button onClick={() => setIsSolo(!isSolo)} className={`px-3 py-1 text-xs font-bold rounded ${isSolo ? 'bg-yellow-500/20 text-yellow-500' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>S</button>
       </div>
-
       <div className="flex items-center gap-2 w-32">
         {isMuted || volume === 0 ? <VolumeX size={16} className="text-zinc-500" /> : <Volume2 size={16} className="text-zinc-400" />}
-        <input 
-          type="range" 
-          min="0" 
-          max="100" 
-          value={volume}
-          onChange={(e) => setVolume(parseInt(e.target.value))}
-          className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
-        />
+        <input type="range" min="0" max="100" value={volume} onChange={(e) => setVolume(parseInt(e.target.value))} className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer" />
       </div>
-
-      {/* 4. The container where Wavesurfer will inject the canvas */}
-      <div 
-        ref={waveformRef} 
-        className="flex-1 h-12 bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden"
-      />
+      <div ref={waveformRef} className="flex-1 h-12 bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden" />
     </div>
   );
 };
@@ -96,11 +69,36 @@ const AudioTrack: React.FC<TrackProps> = ({ title, color, audioUrl }) => {
 export default function App() {
   const [fileSelected, setFileSelected] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFileSelected(true);
-    setIsProcessing(true);
-    setTimeout(() => setIsProcessing(false), 2000);
+  // 2. The real connection function!
+  const handleFileUpload = async () => {
+    try {
+      // Open native OS file picker
+      const selectedPath = await open({
+        multiple: false,
+        filters: [{ name: 'Audio', extensions: ['mp3', 'wav'] }]
+      });
+
+      if (selectedPath) {
+        setFileSelected(true);
+        setIsProcessing(true);
+        setErrorMsg(null);
+
+        console.log("Selected file:", selectedPath);
+
+        // Call the Rust function 'run_demucs' and wait for Python to finish
+        const result = await invoke('run_demucs', { filePath: selectedPath });
+        
+        console.log("Rust returned:", result);
+        setIsProcessing(false); // Done! Move to the tracks UI
+      }
+    } catch (error) {
+      console.error("Backend error:", error);
+      setErrorMsg(String(error));
+      setIsProcessing(false);
+      setFileSelected(false);
+    }
   };
 
   return (
@@ -110,20 +108,26 @@ export default function App() {
         <p className="text-zinc-400 text-sm mt-1">Local AI Stem Separation</p>
       </header>
 
+      {errorMsg && (
+        <div className="bg-red-500/20 text-red-500 p-4 rounded-lg mb-6 border border-red-500/50">
+          Error: {errorMsg}
+        </div>
+      )}
+
       {!fileSelected ? (
-        <div className="border-2 border-dashed border-zinc-700 rounded-2xl p-16 flex flex-col items-center justify-center bg-zinc-900/50 hover:bg-zinc-800/50 transition cursor-pointer">
+        <div className="border-2 border-dashed border-zinc-700 rounded-2xl p-16 flex flex-col items-center justify-center bg-zinc-900/50 hover:bg-zinc-800/50 transition cursor-pointer" onClick={handleFileUpload}>
           <UploadCloud size={48} className="text-zinc-400 mb-4" />
-          <h2 className="text-xl font-bold mb-2">Drag & Drop Audio File</h2>
+          <h2 className="text-xl font-bold mb-2">Click to Upload Audio</h2>
           <p className="text-zinc-500 text-sm mb-6">Supports MP3 and WAV</p>
-          <label className="bg-white text-black px-6 py-2 rounded-full font-bold cursor-pointer hover:bg-zinc-200 transition">
+          <button className="bg-white text-black px-6 py-2 rounded-full font-bold hover:bg-zinc-200 transition">
             Browse Files
-            <input type="file" className="hidden" accept=".mp3, .wav" onChange={handleFileUpload} />
-          </label>
+          </button>
         </div>
       ) : isProcessing ? (
         <div className="flex flex-col items-center justify-center h-64">
            <div className="w-8 h-8 border-4 border-zinc-700 border-t-white rounded-full animate-spin mb-4"></div>
            <p className="text-zinc-400 animate-pulse">Running Demucs Inference...</p>
+           <p className="text-zinc-500 text-xs mt-2">This may take a few minutes depending on your CPU/GPU.</p>
         </div>
       ) : (
         <div className="animate-in fade-in duration-700">
