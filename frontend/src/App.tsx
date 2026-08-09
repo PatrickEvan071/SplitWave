@@ -5,7 +5,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 
-import { masterPitchShift } from './lib/audioengine';
+import { masterPitchShift } from './lib/audioEngine';
 import { AudioTrack, TrackRef } from './components/AudioTrack';
 import MasterControls from './components/MasterControls';
 import LooperBar from './components/LooperBar';
@@ -203,8 +203,7 @@ export default function App() {
 
       if (destPath) {
         setIsExporting(true); 
-        const buildTrackData = (name: string, ref: React.RefObject<TrackRef | null>, trackSoloed: boolean) => {
-          const db = ref.current?.getDb() || 0;
+          const buildTrackData = (ref: React.RefObject<TrackRef | null>, trackSoloed: boolean) => {          const db = ref.current?.getDb() || 0;
           const isMuted = ref.current?.getMuted() || false;
           const isMutedBySolo = isGlobalSoloActive && !trackSoloed;
           const shouldBeSilent = isMuted || isMutedBySolo || db === -60 || masterVolumeDb === -60;
@@ -214,12 +213,12 @@ export default function App() {
         };
 
         const mixData = {
-          vocals: buildTrackData('vocals', vocalsRef, soloedTracks.includes('Vocals')),
-          drums: buildTrackData('drums', drumsRef, soloedTracks.includes('Drums')),
-          bass: buildTrackData('bass', bassRef, soloedTracks.includes('Bass')),
-          piano: buildTrackData('piano', pianoRef, soloedTracks.includes('Piano')),
-          guitar: buildTrackData('guitar', guitarRef, soloedTracks.includes('Guitar')),
-          other: buildTrackData('other', otherRef, soloedTracks.includes('Other')),
+          vocals: buildTrackData(vocalsRef, soloedTracks.includes('Vocals')),
+          drums: buildTrackData(drumsRef, soloedTracks.includes('Drums')),
+          bass: buildTrackData(bassRef, soloedTracks.includes('Bass')),
+          piano: buildTrackData(pianoRef, soloedTracks.includes('Piano')),
+          guitar: buildTrackData(guitarRef, soloedTracks.includes('Guitar')),
+          other: buildTrackData(otherRef, soloedTracks.includes('Other')),
         };
 
         await invoke('export_master', {

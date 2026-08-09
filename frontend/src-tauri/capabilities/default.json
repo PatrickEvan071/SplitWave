@@ -7,6 +7,19 @@
   ],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/mixer",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
+    "shell:default"
   ]
 }

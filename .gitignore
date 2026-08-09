@@ -1,0 +1,13 @@
+# Python / PyInstaller build artifacts
+backend/build/
+backend/dist/
+backend/*.spec
+venv/
+__pycache__/
+
+# Frontend and Tauri build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+frontend/src-tauri/bin/*.exe
+frontend/src-tauri/bin/*-pc-windows-msvc/

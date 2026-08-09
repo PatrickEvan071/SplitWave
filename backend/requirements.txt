@@ -1,7 +1,7 @@
 demucs
 PyInstaller
 numpy<2
+torch
 torchaudio
 soundfile
-tone
 librosa

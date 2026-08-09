@@ -20,12 +20,16 @@
     "security": {
       "assetProtocol": {
         "enable": true,
-        "scope": ["C:/Users/Patrick Evan/SplitWave/backend/separated/**"]
+        "scope": ["C:\\Users\\Patrick Evan\\Documents\\SplitWave\\separated\\**"]
       },
       "csp": null
     }
   },
   "bundle": {
+    "externalBin": [
+        "bin/demucs_runner",
+        "bin/mixer"
+      ],
     "active": true,
     "targets": "all",
     "icon": [

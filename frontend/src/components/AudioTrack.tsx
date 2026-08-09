@@ -1,8 +1,8 @@
 import * as Tone from 'tone';
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Volume2, VolumeX, Download } from 'lucide-react';
 import WaveSurfer from 'wavesurfer.js';
-import { masterBus } from '../lib/audioengine';
+import { masterBus } from '../lib/audioEngine';
 
 export interface TrackRef {
   setTime: (time: number) => void;

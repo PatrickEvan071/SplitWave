@@ -1,4 +1,3 @@
-import React from 'react';
 import { Play, Pause, SkipBack, SkipForward, MegaphoneOff, Volume2, Repeat, SlidersHorizontal } from 'lucide-react';
 import { formatTime } from '../lib/utils';
 

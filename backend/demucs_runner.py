@@ -1,7 +1,8 @@
 import sys
-import subprocess
 import argparse
+import os
 from pathlib import Path
+from demucs.separate import main as demucs_main
 
 def main():
     parser = argparse.ArgumentParser()
@@ -9,23 +10,24 @@ def main():
     args = parser.parse_args()
 
     file_path = Path(args.file_path)
-    # Saves the tracks in a 'separated' folder inside your backend directory
-    output_dir = Path(__file__).parent / "separated" 
+    
+    # Save directly to the user's Documents folder
+    output_dir = Path.home() / "Documents" / "SplitWave" / "separated"
+    os.makedirs(output_dir, exist_ok=True)
 
     print(f"Processing: {file_path}")
+    print(f"Outputting to: {output_dir}")
 
-    # THE FIX: Using sys.executable bypasses Windows PATH issues completely 
-    # by forcing the current Python environment to run the module directly.
-    command = [
-            sys.executable, 
-            "-m", "demucs.separate",
-            "-n", "htdemucs_6s", # <-- CHANGED TO 6-STEM MODEL
-            "-o", str(output_dir),
-            str(file_path)
-        ]
+    # Set up arguments for Demucs internally, bypassing CLI mismatch
+    sys.argv = [
+        "demucs",
+        "-n", "htdemucs_6s",
+        "-o", str(output_dir),
+        str(file_path)
+    ]
 
     try:
-        subprocess.run(command, check=True)
+        demucs_main()
         print("Successfully separated tracks!")
     except Exception as e:
         print(f"Error running demucs: {e}", file=sys.stderr)
