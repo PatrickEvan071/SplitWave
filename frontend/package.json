@@ -16,6 +16,7 @@
     "lucide-react": "^1.30.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tone": "^15.1.22",
     "wavesurfer.js": "^7.12.11"
   },
   "devDependencies": {

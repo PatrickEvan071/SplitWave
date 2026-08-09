@@ -1,9 +1,21 @@
+import * as Tone from 'tone';
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { UploadCloud, Volume2, VolumeX, Play, Pause, SlidersHorizontal, Download } from 'lucide-react';import WaveSurfer from 'wavesurfer.js';
+import { UploadCloud, Volume2, VolumeX, Play, Pause, SlidersHorizontal, Download } from 'lucide-react';
+import WaveSurfer from 'wavesurfer.js';
 import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
+
+// ==========================================
+// GLOBAL AUDIO GRAPH (THE MASTER BUS)
+// ==========================================
+// Creating this outside React ensures we only ever have ONE pitch shifter
+// running for the entire application, keeping all tracks perfectly in sync.
+const masterBus = new Tone.Gain(1);
+const masterPitchShift = new Tone.PitchShift(0);
+masterBus.connect(masterPitchShift);
+masterPitchShift.toDestination();
 
 export interface TrackRef {
   setTime: (time: number) => void;
@@ -20,10 +32,11 @@ interface TrackProps {
   isGlobalSoloActive: boolean;
   isThisTrackSoloed: boolean;
   masterVolumeDb: number; 
+  playbackRate: number;   
   onToggleSolo: () => void;
   onSeek: (time: number) => void; 
   onTimeUpdate?: (time: number, duration: number) => void;
-  onExportRaw: () => void; // <-- ADD THIS LINE
+  onExportRaw: () => void; 
 }
 
 const AudioTrack = forwardRef<TrackRef, TrackProps>(({ 
@@ -34,6 +47,7 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
   isGlobalSoloActive,
   isThisTrackSoloed,
   masterVolumeDb,
+  playbackRate,
   onToggleSolo,
   onSeek,
   onTimeUpdate,
@@ -45,8 +59,7 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
   const waveformRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
+  const gainNodeRef = useRef<Tone.Gain | null>(null);
   const sourceConnected = useRef(false);
 
   useImperativeHandle(ref, () => ({
@@ -55,6 +68,12 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
     getDb: () => trackDb,
     getMuted: () => isMuted
   }));
+
+  // Speed Control Effect
+  useEffect(() => {
+    if (!wavesurfer.current) return;
+    wavesurfer.current.setPlaybackRate(playbackRate);
+  }, [playbackRate]);
 
   useEffect(() => {
     if (!waveformRef.current) return;
@@ -67,7 +86,6 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
       barWidth: 2,
       barGap: 2,
       barRadius: 2,
-      
       cursorWidth: 2,
       cursorColor: '#ffffff',
       dragToSeek: true,
@@ -78,21 +96,19 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
     ws.on('ready', () => {
       const mediaElement = ws.getMediaElement();
       
-      if (!audioCtxRef.current) {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        const ctx = new AudioContext();
-        audioCtxRef.current = ctx;
-
-        const gainNode = ctx.createGain();
+      if (!sourceConnected.current) {
+        const gainNode = new Tone.Gain(1);
         gainNodeRef.current = gainNode;
 
         try {
-          if (!sourceConnected.current) {
-            const source = ctx.createMediaElementSource(mediaElement);
-            source.connect(gainNode);
-            gainNode.connect(ctx.destination);
-            sourceConnected.current = true;
-          }
+          // @ts-ignore - Create the media source directly from Tone's context
+          const source = Tone.context.createMediaElementSource(mediaElement);
+          
+          // Route: Track Source -> Track Gain -> GLOBAL MASTER BUS
+          Tone.connect(source, gainNode);
+          gainNode.connect(masterBus);
+          
+          sourceConnected.current = true;
         } catch (e) {
           console.warn("Audio routing already established for this node.");
         }
@@ -105,17 +121,14 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
 
     return () => {
       ws.destroy();
-      audioCtxRef.current?.close();
     };
   }, [color, audioUrl]);
 
   useEffect(() => {
     if (!wavesurfer.current) return;
     if (isPlaying) {
+      Tone.start(); 
       wavesurfer.current.play();
-      if (audioCtxRef.current?.state === 'suspended') {
-        audioCtxRef.current.resume();
-      }
     } else {
       wavesurfer.current.pause();
     }
@@ -129,11 +142,8 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
     const finalGainMultiplier = shouldBeSilent ? 0 : Math.pow(10, combinedDb / 20);
 
     if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = finalGainMultiplier;
-      if (wavesurfer.current) wavesurfer.current.setVolume(1.0); 
-    } else if (wavesurfer.current) {
-      wavesurfer.current.setVolume(Math.min(finalGainMultiplier, 1.0));
-    }
+      gainNodeRef.current.gain.rampTo(finalGainMultiplier, 0.1);
+    } 
   }, [trackDb, masterVolumeDb, isMuted, isGlobalSoloActive, isThisTrackSoloed]);
 
   useEffect(() => {
@@ -218,8 +228,6 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
           </div>
         )}
       </div>
-
-      
     </div>
   );
 });
@@ -234,7 +242,6 @@ export default function App() {
   const [soloedTracks, setSoloedTracks] = useState<string[]>([]);
   const isGlobalSoloActive = soloedTracks.length > 0;
   
-  // NEW: Drag and Drop visual state
   const [isDragging, setIsDragging] = useState(false);
 
   const vocalsRef = useRef<TrackRef>(null);
@@ -246,10 +253,23 @@ export default function App() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  
-  const [masterVolumeDb, setMasterVolumeDb] = useState(0);
 
-  // 1. Reusable Audio Processor (Used by both Button and Drag-and-Drop)
+  const [masterVolumeDb, setMasterVolumeDb] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [masterTranspose, setMasterTranspose] = useState(0);
+
+  const [uiPlaybackRate, setUiPlaybackRate] = useState(1.0); 
+  const [uiTranspose, setUiTranspose] = useState(0); 
+
+  useEffect(() => {
+    masterPitchShift.pitch = masterTranspose;
+  }, [masterTranspose]);
+
+  // Sync React state to the global Tone.js Master PitchShifter
+  useEffect(() => {
+    masterPitchShift.pitch = masterTranspose;
+  }, [masterTranspose]);
+
   const processAudioFile = async (filePath: string) => {
     setIsProcessing(true);
     setErrorMsg(null);
@@ -257,7 +277,7 @@ export default function App() {
     setSoloedTracks([]); 
     setCurrentTime(0);
     setDuration(0);
-    setStemFolder(null); // Clear previous waveforms while processing
+    setStemFolder(null); 
 
     try {
       const result = await invoke<string>('run_demucs', { filePath });
@@ -270,7 +290,6 @@ export default function App() {
     }
   };
 
-  // 2. Button Upload Trigger
   const handleFileUpload = async () => {
     try {
       const selectedPath = await open({
@@ -286,7 +305,6 @@ export default function App() {
     }
   };
 
-  // 3. Native Tauri Drag & Drop Listeners
   useEffect(() => {
     let unlistenEnter: () => void;
     let unlistenLeave: () => void;
@@ -299,13 +317,11 @@ export default function App() {
       unlistenDrop = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
         setIsDragging(false);
         
-        // Prevent dropping a new file while Demucs is already running
         if (isProcessing) return; 
 
         const paths = event.payload.paths;
         if (paths && paths.length > 0) {
           const filePath = paths[0];
-          // Ensure it's a valid audio extension before processing
           if (filePath.toLowerCase().endsWith('.mp3') || filePath.toLowerCase().endsWith('.wav')) {
             processAudioFile(filePath);
           } else {
@@ -322,7 +338,7 @@ export default function App() {
       if (unlistenLeave) unlistenLeave();
       if (unlistenDrop) unlistenDrop();
     };
-  }, [isProcessing]); // Re-bind if processing state changes to block concurrent drops
+  }, [isProcessing]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -407,9 +423,8 @@ export default function App() {
       });
 
       if (destPath) {
-        setIsProcessing(true); // Spin the UI while mixing
+        setIsProcessing(true); 
         
-        // Helper to extract state and calculate final gain for Python
         const buildTrackData = (name: string, ref: React.RefObject<TrackRef | null>, trackSoloed: boolean) => {
           const db = ref.current?.getDb() || 0;
           const isMuted = ref.current?.getMuted() || false;
@@ -434,7 +449,9 @@ export default function App() {
         await invoke('export_master', {
           stemDir: stemFolder,
           destPath: destPath,
-          mixData: JSON.stringify(mixData)
+          mixData: JSON.stringify(mixData),
+          speed: playbackRate,       
+          transpose: masterTranspose 
         });
         
         setIsProcessing(false);
@@ -448,7 +465,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-white p-8 font-sans selection:bg-blue-500/30 relative">
       
-      {/* 4. Full-Screen Visual Drag Overlay */}
       {isDragging && (
         <div className="fixed inset-0 z-50 bg-blue-500/10 backdrop-blur-sm border-4 border-blue-500 border-dashed flex items-center justify-center transition-all">
           <div className="bg-zinc-900 px-10 py-8 rounded-2xl flex flex-col items-center shadow-2xl border border-zinc-800">
@@ -506,22 +522,66 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 bg-black/40 px-6 py-3 rounded-lg border border-zinc-800/50">
-            <button 
-              onClick={handleResetFaders}
-              disabled={!isReady}
-              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Reset Vol
-            </button>
-            <button 
-              onClick={handleExportMaster}
-              disabled={!isReady}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Export Mix
-            </button>
+            
+            {/* Speed & Transpose Controls */}
+            <div className="flex flex-col w-32 mr-2 gap-3">
+              <div>
+                <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
+                  <span>Transpose</span>
+                  <span className={uiTranspose !== 0 ? 'text-blue-400' : 'text-zinc-400'}>
+                    {uiTranspose > 0 ? '+' : ''}{uiTranspose} st
+                  </span>
+                </div>
+                <input 
+                  type="range" min="-12" max="12" step="1" 
+                  value={uiTranspose} 
+                  onChange={(e) => setUiTranspose(parseInt(e.target.value))} 
+                  onPointerUp={() => setMasterTranspose(uiTranspose)}
+                  onKeyUp={() => setMasterTranspose(uiTranspose)}
+                  disabled={!isReady}
+                  className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer relative z-10 accent-blue-500" 
+                />
+              </div>
+              
+              <div>
+                <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
+                  <span>Speed</span>
+                  <span className={uiPlaybackRate !== 1 ? 'text-blue-400' : 'text-zinc-400'}>
+                    {uiPlaybackRate.toFixed(2)}x
+                  </span>
+                </div>
+                <input 
+                  type="range" min="0.5" max="2.0" step="0.05" 
+                  value={uiPlaybackRate} 
+                  onChange={(e) => setUiPlaybackRate(parseFloat(e.target.value))} 
+                  onPointerUp={() => setPlaybackRate(uiPlaybackRate)}
+                  onKeyUp={() => setPlaybackRate(uiPlaybackRate)}
+                  disabled={!isReady}
+                  className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer relative z-10 accent-blue-500" 
+                />
+              </div>
+            </div>
 
-            <div className="w-[1px] h-6 bg-zinc-800 mx-2"></div>
+            <div className="w-[1px] h-10 bg-zinc-800 mx-2"></div>
+
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={handleResetFaders}
+                disabled={!isReady}
+                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Reset Vol
+              </button>
+              <button 
+                onClick={handleExportMaster}
+                disabled={!isReady}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Export Mix
+              </button>
+            </div>
+
+            <div className="w-[1px] h-10 bg-zinc-800 mx-2"></div>
 
             <SlidersHorizontal size={18} className="text-zinc-500" />
             <div className="flex flex-col w-48">
@@ -549,45 +609,51 @@ export default function App() {
           <AudioTrack 
             ref={vocalsRef} title="Vocals" color="#3b82f6" audioUrl={getAudioUrl('vocals')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Vocals')} 
-            masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Vocals')} 
+            masterVolumeDb={masterVolumeDb} playbackRate={playbackRate}
+            onToggleSolo={() => toggleSolo('Vocals')} 
             onSeek={(time) => handleSeek(time, 'Vocals')}
             onTimeUpdate={(time, dur) => { setCurrentTime(time); setDuration(dur); }}
-            onExportRaw={() => handleExportRaw('vocals')} // <-- ADD THIS
+            onExportRaw={() => handleExportRaw('vocals')} 
           />
           <AudioTrack 
             ref={drumsRef} title="Drums" color="#ef4444" audioUrl={getAudioUrl('drums')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Drums')} 
-            masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Drums')} 
+            masterVolumeDb={masterVolumeDb} playbackRate={playbackRate} 
+            onToggleSolo={() => toggleSolo('Drums')} 
             onSeek={(time) => handleSeek(time, 'Drums')}
-            onExportRaw={() => handleExportRaw('drums')} // <-- ADD THIS
+            onExportRaw={() => handleExportRaw('drums')} 
           />
           <AudioTrack 
             ref={bassRef} title="Bass" color="#eab308" audioUrl={getAudioUrl('bass')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Bass')} 
-            masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Bass')} 
+            masterVolumeDb={masterVolumeDb} playbackRate={playbackRate} 
+            onToggleSolo={() => toggleSolo('Bass')} 
             onSeek={(time) => handleSeek(time, 'Bass')}
-            onExportRaw={() => handleExportRaw('bass')} // <-- ADD THIS
+            onExportRaw={() => handleExportRaw('bass')} 
           />
           <AudioTrack 
             ref={pianoRef} title="Piano" color="#a855f7" audioUrl={getAudioUrl('piano')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Piano')} 
-            masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Piano')} 
+            masterVolumeDb={masterVolumeDb} playbackRate={playbackRate} 
+            onToggleSolo={() => toggleSolo('Piano')} 
             onSeek={(time) => handleSeek(time, 'Piano')}
-            onExportRaw={() => handleExportRaw('piano')} // <-- ADD THIS
+            onExportRaw={() => handleExportRaw('piano')} 
           />
           <AudioTrack 
             ref={guitarRef} title="Guitar" color="#f97316" audioUrl={getAudioUrl('guitar')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Guitar')} 
-            masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Guitar')} 
+            masterVolumeDb={masterVolumeDb} playbackRate={playbackRate} 
+            onToggleSolo={() => toggleSolo('Guitar')} 
             onSeek={(time) => handleSeek(time, 'Guitar')}
-            onExportRaw={() => handleExportRaw('guitar')} // <-- ADD THIS
+            onExportRaw={() => handleExportRaw('guitar')} 
           />
           <AudioTrack 
             ref={otherRef} title="Other" color="#10b981" audioUrl={getAudioUrl('other')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Other')} 
-            masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Other')} 
+            masterVolumeDb={masterVolumeDb} playbackRate={playbackRate} 
+            onToggleSolo={() => toggleSolo('Other')} 
             onSeek={(time) => handleSeek(time, 'Other')}
-            onExportRaw={() => handleExportRaw('other')} // <-- ADD THIS
+            onExportRaw={() => handleExportRaw('other')} 
           />
         </div>
       </div>

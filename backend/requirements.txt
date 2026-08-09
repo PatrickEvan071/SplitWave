@@ -3,3 +3,5 @@ PyInstaller
 numpy<2
 torchaudio
 soundfile
+tone
+librosa
