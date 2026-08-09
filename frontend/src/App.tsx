@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { UploadCloud, Volume2, VolumeX, Play, Pause, SlidersHorizontal } from 'lucide-react';
-import WaveSurfer from 'wavesurfer.js';
+import { UploadCloud, Volume2, VolumeX, Play, Pause, SlidersHorizontal, Download } from 'lucide-react';import WaveSurfer from 'wavesurfer.js';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 export interface TrackRef {
   setTime: (time: number) => void;
   resetFader: () => void;
+  getDb: () => number;
+  getMuted: () => boolean;
 }
 
 interface TrackProps {
@@ -21,7 +22,8 @@ interface TrackProps {
   masterVolumeDb: number; 
   onToggleSolo: () => void;
   onSeek: (time: number) => void; 
-  onTimeUpdate?: (time: number, duration: number) => void; 
+  onTimeUpdate?: (time: number, duration: number) => void;
+  onExportRaw: () => void; // <-- ADD THIS LINE
 }
 
 const AudioTrack = forwardRef<TrackRef, TrackProps>(({ 
@@ -34,7 +36,8 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
   masterVolumeDb,
   onToggleSolo,
   onSeek,
-  onTimeUpdate
+  onTimeUpdate,
+  onExportRaw
 }, ref) => {
   const [isMuted, setIsMuted] = useState(false);
   const [trackDb, setTrackDb] = useState(0); 
@@ -47,14 +50,10 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
   const sourceConnected = useRef(false);
 
   useImperativeHandle(ref, () => ({
-    setTime: (time: number) => {
-      if (wavesurfer.current) {
-        wavesurfer.current.setTime(time);
-      }
-    },
-    resetFader: () => {
-      setTrackDb(0); 
-    }
+    setTime: (time: number) => { if (wavesurfer.current) wavesurfer.current.setTime(time); },
+    resetFader: () => setTrackDb(0),
+    getDb: () => trackDb,
+    getMuted: () => isMuted
   }));
 
   useEffect(() => {
@@ -177,6 +176,14 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
         >
           S
         </button>
+        <button 
+          onClick={onExportRaw} 
+          disabled={!audioUrl}
+          title="Export Raw Stem"
+          className={`px-3 py-1 flex items-center justify-center rounded transition-colors ${!audioUrl ? 'opacity-50 cursor-not-allowed' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+        >
+          <Download size={14} />
+        </button>
       </div>
 
       <div className="flex items-center gap-3 w-56">
@@ -211,6 +218,8 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
           </div>
         )}
       </div>
+
+      
     </div>
   );
 });
@@ -371,6 +380,71 @@ export default function App() {
 
   const isReady = !!stemFolder && !isProcessing;
 
+  const handleExportRaw = async (stemName: string) => {
+    if (!stemFolder) return;
+    try {
+      const destPath = await save({
+        filters: [{ name: 'Audio', extensions: ['wav'] }],
+        defaultPath: `${stemName}_stem.wav`
+      });
+      if (destPath) {
+        await invoke('export_raw_stem', { 
+          sourcePath: `${stemFolder}/${stemName}.wav`, 
+          destPath 
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleExportMaster = async () => {
+    if (!stemFolder) return;
+    try {
+      const destPath = await save({
+        filters: [{ name: 'Audio', extensions: ['wav'] }],
+        defaultPath: `Master_Mix.wav`
+      });
+
+      if (destPath) {
+        setIsProcessing(true); // Spin the UI while mixing
+        
+        // Helper to extract state and calculate final gain for Python
+        const buildTrackData = (name: string, ref: React.RefObject<TrackRef | null>, trackSoloed: boolean) => {
+          const db = ref.current?.getDb() || 0;
+          const isMuted = ref.current?.getMuted() || false;
+          const isMutedBySolo = isGlobalSoloActive && !trackSoloed;
+          
+          const shouldBeSilent = isMuted || isMutedBySolo || db === -60 || masterVolumeDb === -60;
+          const combinedDb = db + masterVolumeDb;
+          const finalGain = shouldBeSilent ? 0 : Math.pow(10, combinedDb / 20);
+
+          return { muted: shouldBeSilent, gain: finalGain };
+        };
+
+        const mixData = {
+          vocals: buildTrackData('vocals', vocalsRef, soloedTracks.includes('Vocals')),
+          drums: buildTrackData('drums', drumsRef, soloedTracks.includes('Drums')),
+          bass: buildTrackData('bass', bassRef, soloedTracks.includes('Bass')),
+          piano: buildTrackData('piano', pianoRef, soloedTracks.includes('Piano')),
+          guitar: buildTrackData('guitar', guitarRef, soloedTracks.includes('Guitar')),
+          other: buildTrackData('other', otherRef, soloedTracks.includes('Other')),
+        };
+
+        await invoke('export_master', {
+          stemDir: stemFolder,
+          destPath: destPath,
+          mixData: JSON.stringify(mixData)
+        });
+        
+        setIsProcessing(false);
+      }
+    } catch (err) {
+      setErrorMsg(String(err));
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white p-8 font-sans selection:bg-blue-500/30 relative">
       
@@ -439,6 +513,13 @@ export default function App() {
             >
               Reset Vol
             </button>
+            <button 
+              onClick={handleExportMaster}
+              disabled={!isReady}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold uppercase tracking-widest rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Export Mix
+            </button>
 
             <div className="w-[1px] h-6 bg-zinc-800 mx-2"></div>
 
@@ -471,36 +552,42 @@ export default function App() {
             masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Vocals')} 
             onSeek={(time) => handleSeek(time, 'Vocals')}
             onTimeUpdate={(time, dur) => { setCurrentTime(time); setDuration(dur); }}
+            onExportRaw={() => handleExportRaw('vocals')} // <-- ADD THIS
           />
           <AudioTrack 
             ref={drumsRef} title="Drums" color="#ef4444" audioUrl={getAudioUrl('drums')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Drums')} 
             masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Drums')} 
             onSeek={(time) => handleSeek(time, 'Drums')}
+            onExportRaw={() => handleExportRaw('drums')} // <-- ADD THIS
           />
           <AudioTrack 
             ref={bassRef} title="Bass" color="#eab308" audioUrl={getAudioUrl('bass')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Bass')} 
             masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Bass')} 
             onSeek={(time) => handleSeek(time, 'Bass')}
+            onExportRaw={() => handleExportRaw('bass')} // <-- ADD THIS
           />
           <AudioTrack 
             ref={pianoRef} title="Piano" color="#a855f7" audioUrl={getAudioUrl('piano')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Piano')} 
             masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Piano')} 
             onSeek={(time) => handleSeek(time, 'Piano')}
+            onExportRaw={() => handleExportRaw('piano')} // <-- ADD THIS
           />
           <AudioTrack 
             ref={guitarRef} title="Guitar" color="#f97316" audioUrl={getAudioUrl('guitar')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Guitar')} 
             masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Guitar')} 
             onSeek={(time) => handleSeek(time, 'Guitar')}
+            onExportRaw={() => handleExportRaw('guitar')} // <-- ADD THIS
           />
           <AudioTrack 
             ref={otherRef} title="Other" color="#10b981" audioUrl={getAudioUrl('other')} isPlaying={isPlaying} 
             isGlobalSoloActive={isGlobalSoloActive} isThisTrackSoloed={soloedTracks.includes('Other')} 
             masterVolumeDb={masterVolumeDb} onToggleSolo={() => toggleSolo('Other')} 
             onSeek={(time) => handleSeek(time, 'Other')}
+            onExportRaw={() => handleExportRaw('other')} // <-- ADD THIS
           />
         </div>
       </div>

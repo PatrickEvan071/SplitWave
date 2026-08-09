@@ -30,10 +30,37 @@ async fn run_demucs(file_path: String) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn export_raw_stem(source_path: String, dest_path: String) -> Result<(), String> {
+    std::fs::copy(source_path, dest_path)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to export stem: {}", e))
+}
+
+#[tauri::command]
+async fn export_master(stem_dir: String, dest_path: String, mix_data: String) -> Result<String, String> {
+    let python_path = "C:/Users/Patrick Evan/SplitWave/backend/venv/Scripts/python.exe";
+    let script_path = "C:/Users/Patrick Evan/SplitWave/backend/mixer.py";
+
+    let output = std::process::Command::new(python_path)
+        .arg(script_path)
+        .arg(&stem_dir)
+        .arg(&dest_path)
+        .arg(&mix_data)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok("Exported".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init()) 
-        .invoke_handler(tauri::generate_handler![run_demucs])
+        .invoke_handler(tauri::generate_handler![run_demucs, export_raw_stem, export_master])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

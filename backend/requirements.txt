@@ -1,3 +1,5 @@
 demucs
 PyInstaller
 numpy<2
+torchaudio
+soundfile
