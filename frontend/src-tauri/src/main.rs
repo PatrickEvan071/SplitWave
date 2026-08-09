@@ -46,7 +46,7 @@ async fn export_master(
     transpose: i32,
 ) -> Result<String, String> {
     let python_path = "C:/Users/Patrick Evan/SplitWave/backend/venv/Scripts/python.exe";
-    let script_path = "../backend/mixer.py";
+    let script_path = "C:/Users/Patrick Evan/SplitWave/backend/mixer.py";
 
     let output = std::process::Command::new(python_path)
         .arg(script_path)

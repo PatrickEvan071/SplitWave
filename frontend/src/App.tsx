@@ -234,6 +234,7 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
 
 export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const [isPlaying, setIsPlaying] = useState(false);
@@ -423,7 +424,7 @@ export default function App() {
       });
 
       if (destPath) {
-        setIsProcessing(true); 
+        setIsExporting(true); 
         
         const buildTrackData = (name: string, ref: React.RefObject<TrackRef | null>, trackSoloed: boolean) => {
           const db = ref.current?.getDb() || 0;
@@ -454,11 +455,11 @@ export default function App() {
           transpose: masterTranspose 
         });
         
-        setIsProcessing(false);
+        setIsExporting(false);
       }
     } catch (err) {
       setErrorMsg(String(err));
-      setIsProcessing(false);
+      setIsExporting(false);
     }
   };
 
@@ -482,17 +483,21 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4">
-          {isProcessing && (
+          
+          {/* Dynamic Status Indicator */}
+          {(isProcessing || isExporting) && (
             <div className="flex items-center gap-3 text-zinc-400 bg-zinc-900/50 px-4 py-2 rounded-full border border-zinc-800">
               <div className="w-4 h-4 border-2 border-zinc-600 border-t-white rounded-full animate-spin"></div>
-              <span className="text-sm font-bold animate-pulse">Running Demucs...</span>
+              <span className="text-sm font-bold animate-pulse">
+                {isExporting ? 'Exporting Mix...' : 'Running Demucs...'}
+              </span>
             </div>
           )}
           
           <button 
             onClick={handleFileUpload} 
-            disabled={isProcessing}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-bold transition-all ${isProcessing ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-white text-black hover:bg-zinc-200 shadow-lg shadow-white/10'}`}
+            disabled={isProcessing || isExporting}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-bold transition-all ${(isProcessing || isExporting) ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-white text-black hover:bg-zinc-200 shadow-lg shadow-white/10'}`}
           >
             <UploadCloud size={20} />
             {stemFolder ? 'Load New Audio' : 'Upload Audio'}
