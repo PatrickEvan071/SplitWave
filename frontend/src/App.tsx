@@ -1,6 +1,9 @@
 import * as Tone from 'tone';
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { UploadCloud, Volume2, VolumeX, Play, Pause, SlidersHorizontal, Download } from 'lucide-react';
+import { 
+  UploadCloud, Volume2, VolumeX, Play, Pause, 
+  SlidersHorizontal, Download, SkipBack, SkipForward, Repeat, MegaphoneOff 
+} from 'lucide-react';
 import WaveSurfer from 'wavesurfer.js';
 import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -20,6 +23,7 @@ export interface TrackRef {
   resetFader: () => void;
   getDb: () => number;
   getMuted: () => boolean;
+  resetMute: () => void;
 }
 
 interface TrackProps {
@@ -64,7 +68,8 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
     setTime: (time: number) => { if (wavesurfer.current) wavesurfer.current.setTime(time); },
     resetFader: () => setTrackDb(0),
     getDb: () => trackDb,
-    getMuted: () => isMuted
+    getMuted: () => isMuted,
+    resetMute: () => setIsMuted(false)
   }));
 
   useEffect(() => {
@@ -231,6 +236,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null); // <-- NEW FILE NAME STATE
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [stemFolder, setStemFolder] = useState<string | null>(null);
@@ -240,10 +246,26 @@ export default function App() {
   
   const [isDragging, setIsDragging] = useState(false);
 
-  // NEW: LOOPER BAR STATES
+  // LOOPER BAR STATES
   const [loopRegion, setLoopRegion] = useState<{start: number, end: number} | null>(null);
   const [isDraggingLoop, setIsDraggingLoop] = useState(false);
+  const [isLoopActive, setIsLoopActive] = useState(true);
   const timelineRef = useRef<HTMLDivElement>(null);
+
+  const handleSkipToStart = () => handleSeek(0, 'MASTER');
+  const handleSkipToEnd = () => {
+    handleSeek(duration, 'MASTER');
+    setIsPlaying(false);
+  };
+  
+  const handleClearMutes = () => {
+    vocalsRef.current?.resetMute();
+    drumsRef.current?.resetMute();
+    bassRef.current?.resetMute();
+    pianoRef.current?.resetMute();
+    guitarRef.current?.resetMute();
+    otherRef.current?.resetMute();
+  };
 
   const vocalsRef = useRef<TrackRef>(null);
   const drumsRef = useRef<TrackRef>(null);
@@ -266,23 +288,23 @@ export default function App() {
     masterPitchShift.pitch = masterTranspose;
   }, [masterTranspose]);
 
-  // NEW: LOOPER BAR BOUNCE INTERCEPTOR
+  // LOOPER BAR BOUNCE INTERCEPTOR
   useEffect(() => {
-    if (!loopRegion || !isPlaying || isDraggingLoop) return;
+    if (!loopRegion || !isPlaying || isDraggingLoop || !isLoopActive) return;
     
     const realEnd = Math.max(loopRegion.start, loopRegion.end);
     const realStart = Math.min(loopRegion.start, loopRegion.end);
 
-    // If current time crosses the loop boundary, snap back!
     if (currentTime >= realEnd) {
       handleSeek(realStart, 'LOOP');
     }
-  }, [currentTime, loopRegion, isPlaying, isDraggingLoop]);
+  }, [currentTime, loopRegion, isPlaying, isDraggingLoop, isLoopActive]);
 
-  // NEW: LOOPER BAR POINTER EVENTS
+
+  // LOOPER BAR POINTER EVENTS
   const handleLoopPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!duration || !stemFolder) return;
-    e.currentTarget.setPointerCapture(e.pointerId); // Locks mouse to bar even if they drag outside
+    e.currentTarget.setPointerCapture(e.pointerId); 
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const time = percent * duration;
@@ -303,7 +325,6 @@ export default function App() {
     setIsDraggingLoop(false);
     setLoopRegion(prev => {
       if (!prev) return null;
-      // If they just clicked without dragging, clear the loop
       if (Math.abs(prev.start - prev.end) < 0.5) return null; 
       return {
         start: Math.min(prev.start, prev.end),
@@ -319,8 +340,12 @@ export default function App() {
     setSoloedTracks([]); 
     setCurrentTime(0);
     setDuration(0);
-    setLoopRegion(null); // Clear loop on new track
+    setLoopRegion(null); 
     setStemFolder(null); 
+
+    // NEW: Extract filename
+    const name = filePath.split(/[/\\]/).pop() || 'Unknown File';
+    setFileName(name);
 
     try {
       const result = await invoke<string>('run_demucs', { filePath });
@@ -506,7 +531,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-black text-white p-8 font-sans selection:bg-blue-500/30 relative">
-      
       {isDragging && (
         <div className="fixed inset-0 z-50 bg-blue-500/10 backdrop-blur-sm border-4 border-blue-500 border-dashed flex items-center justify-center transition-all">
           <div className="bg-zinc-900 px-10 py-8 rounded-2xl flex flex-col items-center shadow-2xl border border-zinc-800">
@@ -551,20 +575,92 @@ export default function App() {
       )}
 
       <div className={`transition-opacity duration-500`}>
+        
+        {/* MASTER CONTROL BAR */}
         <div className={`flex items-center justify-between gap-4 mb-6 p-4 bg-zinc-900 rounded-xl border border-zinc-800 w-full transition-opacity ${!isReady ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-          <div className="flex items-center gap-6">
+          
+          {/* LEFT: Transport Controls */}
+          <div className="flex items-center gap-4 bg-black/40 px-4 py-2.5 rounded-lg border border-zinc-800/50">
+            <button 
+              onClick={handleSkipToStart}
+              disabled={!isReady}
+              className="text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
+            >
+              <SkipBack size={20} fill="currentColor" />
+            </button>
+            
             <button 
               onClick={() => setIsPlaying(!isPlaying)}
               disabled={!isReady}
-              className="bg-white text-black p-4 rounded-full hover:bg-zinc-200 transition shadow-lg shadow-white/10"
+              className="bg-white text-black p-3 rounded-full hover:bg-zinc-200 transition shadow-lg shadow-white/10"
             >
-              {isPlaying ? <Pause fill="currentColor" size={24} /> : <Play fill="currentColor" size={24} />}
+              {isPlaying ? <Pause fill="currentColor" size={20} /> : <Play fill="currentColor" size={20} />}
             </button>
-            <span className="font-mono text-lg font-bold text-zinc-300 tracking-wider">
+            
+            <button 
+              onClick={handleSkipToEnd}
+              disabled={!isReady}
+              className="text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
+            >
+              <SkipForward size={20} fill="currentColor" />
+            </button>
+
+            <div className="w-[1px] h-6 bg-zinc-800 mx-2"></div>
+
+            <span className="font-mono text-sm font-bold text-zinc-300 tracking-wider w-28 text-center">
               {formatTime(currentTime)} <span className="text-zinc-600">/</span> {formatTime(duration)}
             </span>
           </div>
 
+          {/* CENTER: Track Title & Mix Utilities */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            {/* UPDATED: Wider container, bigger font, and marquee wrapper */}
+            <div className="relative overflow-hidden max-w-[320px] w-full text-center">
+              <div 
+                className={`text-M font-bold uppercase tracking-widest text-zinc-300 ${
+                  fileName && fileName.length > 50 ? 'animate-marquee' : 'truncate'
+                }`}
+                title={fileName || 'No track loaded'}
+              >
+                {fileName ? fileName : 'NO TRACK LOADED'}
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 bg-black/40 p-1 rounded-lg border border-zinc-800/50">
+                <button
+                  onClick={handleClearMutes}
+                  title="Cover All Mutes"
+                  className="flex items-center gap-2 px-3 py-1 bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[9px] font-bold uppercase tracking-widest rounded transition-colors"
+                >
+                  <MegaphoneOff size={12} /> Unmute All
+                </button>
+                <button
+                  onClick={() => setSoloedTracks([])}
+                  disabled={!isGlobalSoloActive}
+                  title="Clear All Solos"
+                  className={`flex items-center gap-2 px-3 py-1 text-[9px] font-bold uppercase tracking-widest rounded transition-colors ${isGlobalSoloActive ? 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30' : 'bg-zinc-800/50 text-zinc-600 cursor-not-allowed'}`}
+                >
+                  <Volume2 size={12} /> Clear Solos
+                </button>
+              </div>
+
+              <button
+                onClick={() => setIsLoopActive(!isLoopActive)}
+                disabled={!loopRegion}
+                title="Toggle Loop Playback"
+                className={`flex items-center gap-2 px-3 py-1 text-[9px] font-bold uppercase tracking-widest rounded-lg border transition-all ${
+                  !loopRegion ? 'bg-zinc-900/50 border-zinc-800 text-zinc-700 cursor-not-allowed' :
+                  isLoopActive ? 'bg-blue-500/20 border-blue-500/50 text-blue-400 hover:bg-blue-500/30' : 'bg-zinc-800/50 border-zinc-700 text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Repeat size={12} /> {isLoopActive ? 'Loop: ON' : 'Loop: OFF'}
+              </button>
+            </div>
+          </div>
+
+          {/* RIGHT: Speed, Transpose, and Export Master */}
           <div className="flex items-center gap-4 bg-black/40 px-6 py-3 rounded-lg border border-zinc-800/50">
             <div className="flex flex-col w-32 mr-2 gap-3">
               <div>
@@ -647,7 +743,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* NEW: LOOPER BAR */}
+        {/* LOOPER BAR */}
         <div className={`flex items-center gap-6 px-4 mb-4 transition-opacity ${!isReady ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
           
           {/* 1. Aligned Title */}
@@ -704,7 +800,7 @@ export default function App() {
             onPointerUp={handleLoopPointerUp}
             className="relative flex-1 h-8 bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden cursor-crosshair group hover:border-zinc-700 transition-colors"
           >
-            {/* NEW: Timeline Grid Markers (Every 30 seconds) */}
+            {/* Timeline Grid Markers (Every 30 seconds) */}
             {isReady && duration > 0 && (
               <div className="absolute inset-0 pointer-events-none">
                 {Array.from({ length: Math.floor(duration / 30) }).map((_, idx) => {
