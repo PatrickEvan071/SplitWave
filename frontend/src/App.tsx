@@ -170,6 +170,29 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if the key pressed is the spacebar
+      if (e.code === 'Space') {
+        // Stop the browser from clicking focused buttons or scrolling
+        e.preventDefault(); 
+        
+        // Only toggle play/pause if a file has actually been loaded
+        if (stemFolder) {
+          setIsPlaying(prev => !prev);
+        }
+      }
+    };
+
+    // Attach the listener to the whole window
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Clean up the listener when the app closes
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [stemFolder]);
+
   const handleFileUpload = async () => {
     try {
       const selectedPath = await open({
