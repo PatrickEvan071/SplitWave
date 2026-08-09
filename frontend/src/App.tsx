@@ -4,6 +4,7 @@ import WaveSurfer from 'wavesurfer.js';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 export interface TrackRef {
   setTime: (time: number) => void;
@@ -67,7 +68,10 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
       barWidth: 2,
       barGap: 2,
       barRadius: 2,
-      cursorWidth: 0,
+      
+      cursorWidth: 2,
+      cursorColor: '#ffffff',
+      dragToSeek: true,
     });
     
     wavesurfer.current = ws;
@@ -151,6 +155,7 @@ const AudioTrack = forwardRef<TrackRef, TrackProps>(({
     };
   }, [onSeek, onTimeUpdate]);
 
+
   return (
     <div className="flex items-center gap-6 bg-zinc-900 p-4 rounded-xl mb-4 border border-zinc-800">
       <div className="w-24">
@@ -219,6 +224,9 @@ export default function App() {
 
   const [soloedTracks, setSoloedTracks] = useState<string[]>([]);
   const isGlobalSoloActive = soloedTracks.length > 0;
+  
+  // NEW: Drag and Drop visual state
+  const [isDragging, setIsDragging] = useState(false);
 
   const vocalsRef = useRef<TrackRef>(null);
   const drumsRef = useRef<TrackRef>(null);
@@ -231,6 +239,81 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   
   const [masterVolumeDb, setMasterVolumeDb] = useState(0);
+
+  // 1. Reusable Audio Processor (Used by both Button and Drag-and-Drop)
+  const processAudioFile = async (filePath: string) => {
+    setIsProcessing(true);
+    setErrorMsg(null);
+    setIsPlaying(false);
+    setSoloedTracks([]); 
+    setCurrentTime(0);
+    setDuration(0);
+    setStemFolder(null); // Clear previous waveforms while processing
+
+    try {
+      const result = await invoke<string>('run_demucs', { filePath });
+      setStemFolder(result);
+    } catch (error) {
+      setErrorMsg(String(error));
+    } finally {
+      setIsProcessing(false);
+      setIsDragging(false);
+    }
+  };
+
+  // 2. Button Upload Trigger
+  const handleFileUpload = async () => {
+    try {
+      const selectedPath = await open({
+        multiple: false,
+        filters: [{ name: 'Audio', extensions: ['mp3', 'wav'] }]
+      });
+
+      if (selectedPath) {
+        processAudioFile(selectedPath);
+      }
+    } catch (error) {
+      setErrorMsg(String(error));
+    }
+  };
+
+  // 3. Native Tauri Drag & Drop Listeners
+  useEffect(() => {
+    let unlistenEnter: () => void;
+    let unlistenLeave: () => void;
+    let unlistenDrop: () => void;
+
+    const setupListeners = async () => {
+      unlistenEnter = await listen('tauri://drag-enter', () => setIsDragging(true));
+      unlistenLeave = await listen('tauri://drag-leave', () => setIsDragging(false));
+      
+      unlistenDrop = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
+        setIsDragging(false);
+        
+        // Prevent dropping a new file while Demucs is already running
+        if (isProcessing) return; 
+
+        const paths = event.payload.paths;
+        if (paths && paths.length > 0) {
+          const filePath = paths[0];
+          // Ensure it's a valid audio extension before processing
+          if (filePath.toLowerCase().endsWith('.mp3') || filePath.toLowerCase().endsWith('.wav')) {
+            processAudioFile(filePath);
+          } else {
+            setErrorMsg("Please drop a valid .mp3 or .wav file.");
+          }
+        }
+      });
+    };
+
+    setupListeners();
+
+    return () => {
+      if (unlistenEnter) unlistenEnter();
+      if (unlistenLeave) unlistenLeave();
+      if (unlistenDrop) unlistenDrop();
+    };
+  }, [isProcessing]); // Re-bind if processing state changes to block concurrent drops
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -247,33 +330,6 @@ export default function App() {
     };
   }, [stemFolder, isProcessing]);
 
-  const handleFileUpload = async () => {
-    try {
-      const selectedPath = await open({
-        multiple: false,
-        filters: [{ name: 'Audio', extensions: ['mp3', 'wav'] }]
-      });
-
-      if (selectedPath) {
-        setIsProcessing(true);
-        setErrorMsg(null);
-        setIsPlaying(false);
-        setSoloedTracks([]); 
-        setCurrentTime(0);
-        setDuration(0);
-        setStemFolder(null); // Clear previous waveforms while processing
-
-        const result = await invoke<string>('run_demucs', { filePath: selectedPath });
-        
-        setStemFolder(result);
-        setIsProcessing(false);
-      }
-    } catch (error) {
-      setErrorMsg(String(error));
-      setIsProcessing(false);
-    }
-  };
-
   const getAudioUrl = (stemName: string) => {
     if (!stemFolder) return undefined;
     const fullPath = `${stemFolder}/${stemName}.wav`;
@@ -282,9 +338,7 @@ export default function App() {
 
   const toggleSolo = (title: string) => {
     setSoloedTracks(prev => 
-      prev.includes(title) 
-        ? prev.filter(t => t !== title) 
-        : [...prev, title]
+      prev.includes(title) ? prev.filter(t => t !== title) : [...prev, title]
     );
   };
 
@@ -295,18 +349,8 @@ export default function App() {
     if (sourceTrack !== 'Other') otherRef.current?.setTime(time);
     if (sourceTrack !== 'Piano') pianoRef.current?.setTime(time);
     if (sourceTrack !== 'Guitar') guitarRef.current?.setTime(time);
-    
     setCurrentTime(time);
   };
-
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds) || seconds < 0) return "00:00";
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const isReady = !!stemFolder && !isProcessing;
 
   const handleResetFaders = () => {
     setMasterVolumeDb(0);
@@ -318,10 +362,29 @@ export default function App() {
     otherRef.current?.resetFader();
   };
 
+  const formatTime = (seconds: number) => {
+    if (isNaN(seconds) || seconds < 0) return "00:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const isReady = !!stemFolder && !isProcessing;
+
   return (
-    <div className="min-h-screen bg-black text-white p-8 font-sans selection:bg-blue-500/30">
+    <div className="min-h-screen bg-black text-white p-8 font-sans selection:bg-blue-500/30 relative">
       
-      {/* Unified Header with Upload Button & Status */}
+      {/* 4. Full-Screen Visual Drag Overlay */}
+      {isDragging && (
+        <div className="fixed inset-0 z-50 bg-blue-500/10 backdrop-blur-sm border-4 border-blue-500 border-dashed flex items-center justify-center transition-all">
+          <div className="bg-zinc-900 px-10 py-8 rounded-2xl flex flex-col items-center shadow-2xl border border-zinc-800">
+            <UploadCloud size={64} className="text-blue-500 mb-4 animate-bounce" />
+            <h2 className="text-2xl font-black text-white tracking-tight uppercase">Drop Audio to Split</h2>
+            <p className="text-zinc-400 mt-2 font-mono text-sm">Supports .mp3 and .wav</p>
+          </div>
+        </div>
+      )}
+
       <header className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-white">SplitWave</h1>
@@ -353,10 +416,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Workspace - Always Visible */}
       <div className={`transition-opacity duration-500`}>
-        
-        {/* Top Control Bar with Transport and Master Fader */}
         <div className={`flex items-center justify-between gap-4 mb-8 p-4 bg-zinc-900 rounded-xl border border-zinc-800 w-full transition-opacity ${!isReady ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
           <div className="flex items-center gap-6">
             <button 
@@ -371,10 +431,7 @@ export default function App() {
             </span>
           </div>
 
-          {/* Master Fader Block */}
           <div className="flex items-center gap-4 bg-black/40 px-6 py-3 rounded-lg border border-zinc-800/50">
-            <SlidersHorizontal size={18} className="text-zinc-500" />
-            {/* NEW: Text-based Reset Button */}
             <button 
               onClick={handleResetFaders}
               disabled={!isReady}
@@ -382,6 +439,10 @@ export default function App() {
             >
               Reset Vol
             </button>
+
+            <div className="w-[1px] h-6 bg-zinc-800 mx-2"></div>
+
+            <SlidersHorizontal size={18} className="text-zinc-500" />
             <div className="flex flex-col w-48">
               <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
                 <span>Master</span>
@@ -403,7 +464,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* The Mixer Tracks */}
         <div className="flex flex-col">
           <AudioTrack 
             ref={vocalsRef} title="Vocals" color="#3b82f6" audioUrl={getAudioUrl('vocals')} isPlaying={isPlaying} 
