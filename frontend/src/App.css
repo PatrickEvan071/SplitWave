@@ -6,6 +6,12 @@
   100% { transform: translateX(0%); }
 }
 
+html, body {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  background-color: black;
+}
+
 .animate-marquee {
   display: inline-block;
   white-space: nowrap;

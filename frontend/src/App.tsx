@@ -237,7 +237,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white p-8 font-sans selection:bg-blue-500/30 relative">
+    <div className="min-h-screen bg-black text-white p-8 font-sans selection:bg-blue-500/30 relative overflow-x-hidden">
       {isDragging && (
         <div className="fixed inset-0 z-50 bg-blue-500/10 backdrop-blur-sm border-4 border-blue-500 border-dashed flex items-center justify-center transition-all">
           <div className="bg-zinc-900 px-10 py-8 rounded-2xl flex flex-col items-center shadow-2xl border border-zinc-800">
