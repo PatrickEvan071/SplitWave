@@ -1,13 +1,12 @@
 # SplitWave
 
-SplitWave is a high-performance, local AI-powered stem separation and desktop audio mixing application built with **Tauri**, **React**, and **Python (Demucs)**. It allows musicians, producers, and students to isolate audio tracks (vocals, drums, bass, guitar, piano, and other instruments) from local audio files, manipulate them in real-time with professional digital audio workstation (DAW) features, and export custom mixdowns.
+SplitWave is a high-performance, local AI-powered stem separation and desktop audio mixing application built with **Tauri**, **React**, and **Python (Demucs)**. It allows musicians to isolate audio tracks (vocals, drums, bass, guitar, piano, and other instruments) from local audio files, manipulate them in real-time with professional digital audio workstation (DAW) features, and export custom mixdowns.
 
 ---
 
 ## Features
 
-* **Local AI Stem Separation:** Leverages Meta's Demucs (`htdemucs_6s`) locally to split `.mp3` and `.wav` tracks into isolated stems without relying on cloud services.
-* **Global Drag-and-Drop:** Native OS-level drag-and-drop support allowing users to drag audio files anywhere into the app window to instantly begin processing.
+* **Local AI Stem Separation:** Leverages Meta's Demucs (`htdemucs_6s`) locally via packaged Python sidecars to split `.mp3` and `.wav` tracks into isolated stems without relying on cloud services.
 * **Multi-Track Waveform Viewer:** Powered by `wavesurfer.js` to provide real-time interactive audio scrubbing, time tracking, and synchronized playback across all separated stems.
 * **Advanced Routing & Signal Chain:** 
   * Real-time Web Audio API `GainNode` routing for volume adjustments, muting, and soloing.
@@ -21,10 +20,10 @@ SplitWave is a high-performance, local AI-powered stem separation and desktop au
 
 ## Tech Stack
 
-* **Desktop Framework:** Tauri (Rust backend for system-level operations, native file dialogs, and subprocess management).
+* **Desktop Framework:** Tauri (Rust backend for system-level operations, native file dialogs, and subprocess management of bundled Python sidecars).
 * **Frontend UI:** React, TypeScript, Tailwind CSS, and Lucide Icons.
 * **Audio Visualization:** WaveSurfer.js.
-* **AI & Audio Processing Backend:** Python, Demucs, PyTorch, and SoundFile.
+* **AI & Audio Processing Backend:** Python, Demucs, PyTorch, and SoundFile (packaged via PyInstaller).
 
 ---
 
@@ -32,8 +31,9 @@ SplitWave is a high-performance, local AI-powered stem separation and desktop au
 
 ```text
 SplitWave/
-├── src/                # React frontend application (App.tsx, components)
-├── src-tauri/          # Rust backend (main.rs, Tauri configurations)
-├── backend/            # Python scripts (Demucs runner, mixer.py)
-├── package.json        # Frontend dependencies and scripts
+├── frontend/                 # React frontend and Tauri wrapper
+│   ├── src/                  # React components, UI logic, and styling
+│   └── src-tauri/            # Rust backend (main.rs, configuration, sidecar bins)
+├── backend/                  # Python source scripts (Demucs runner, mixer.py)
+├── package.json              # Root/frontend dependencies and scripts
 └── README.md
