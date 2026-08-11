@@ -1,6 +1,6 @@
 # SplitWave
 
-SplitWave is a high-performance, local AI-powered stem separation and desktop audio mixing application built with **Tauri**, **React**, and **Python (Demucs)**. It allows musicians to isolate audio tracks (vocals, drums, bass, guitar, piano, and other instruments) from local audio files, manipulate them in real-time with professional digital audio workstation (DAW) features, and export custom mixdowns.
+SplitWave is a high-performance, local AI-powered stem separation and desktop audio mixing application built with **Tauri**, **React**, and **Python (Demucs)**. It allows musicians to isolate audio tracks (vocals, drums, bass, guitar, piano, and other instruments) from local audio files, manipulate them in real-time with professional digital audio workstation (DAW) features, and export custom mixdowns. What motivated me to create this was the fact that existing stem separation tools like Moises and LALAL.ai required a subscription to fully function. Furthermore, as a musician myself, having access to tools like this has been a massive quality-of-life improvement for my own musical workflow.
 
 ---
 
