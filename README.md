@@ -11,8 +11,7 @@ SplitWave is a high-performance, local AI-powered stem separation and desktop au
 * **Advanced Routing & Signal Chain:** 
   * Real-time Web Audio API `GainNode` routing for volume adjustments, muting, and soloing.
   * Individual decibel sliders with precise custom gain staging and a Master bus control.
-  * Instant global keyboard shortcuts (Spacebar for Play/Pause).
-* **Dual Export Engine:**
+* **Multiple Export Options:**
   * **Raw Stem Export:** Instantly save pristine, uncompressed `.wav` stems (e.g., isolated bass lines) directly to your hard drive at unity gain.
   * **Master Mixdown Export:** Render and "print" a custom master `.wav` file that dynamically incorporates your active fader values, mutes, solos, and master volume levels.
 
