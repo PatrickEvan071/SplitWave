@@ -4,6 +4,10 @@ import os
 from pathlib import Path
 from demucs.separate import main as demucs_main
 
+# Redirect all print logs to nowhere with UTF-8 support to bypass Windows cp1252 crashes
+sys.stdout = open(os.devnull, 'w', encoding='utf-8')
+sys.stderr = open(os.devnull, 'w', encoding='utf-8')
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("file_path", help="Path to the audio file")
